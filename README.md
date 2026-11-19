@@ -202,7 +202,10 @@ wechat-cli new-messages --format text
 wechat-cli sessions                        # Last 20 sessions
 wechat-cli sessions --limit 10             # Last 10
 wechat-cli sessions --format text          # Human-readable
+wechat-cli sessions --urls                 # Also resolve link/file URLs (slower)
 ```
+
+**Options:** `--limit`, `--format`, `--urls`
 
 ### `history` — Chat Messages
 
@@ -214,7 +217,7 @@ wechat-cli history "Alice" --type link     # Only links
 wechat-cli history "Alice" --format text
 ```
 
-**Options:** `--limit`, `--offset`, `--start-time`, `--end-time`, `--type`, `--format`
+**Options:** `--limit`, `--offset`, `--start-time`, `--end-time`, `--type`, `--media`, `--format`
 
 ### `search` — Search Messages
 
@@ -279,16 +282,69 @@ wechat-cli favorites --query "machine learning"  # Search
 ```bash
 wechat-cli unread                          # All unread sessions
 wechat-cli unread --limit 10 --format text
+wechat-cli unread --urls                   # Also resolve link/file URLs (slower)
 ```
+
+**Options:** `--limit`, `--format`, `--urls`
 
 ### `new-messages` — Incremental New Messages
 
 ```bash
 wechat-cli new-messages                    # First: return unread + save state
 wechat-cli new-messages                    # Subsequent: only new since last call
+wechat-cli new-messages --urls             # Also resolve link/file URLs (slower)
 ```
 
+**Options:** `--format`, `--urls`
+
 State saved at `~/.wechat-cli/last_check.json`. Delete to reset.
+
+---
+
+## 🧩 Message Records
+
+`history` and `search` return **structured objects**, not plain strings. Every record
+carries a `msg_type`; link/file messages additionally carry a `url` with the best
+address available:
+
+| `app_type` | `url` value |
+|-------------|-------------|
+| `链接` | The article's real HTTP(S) URL |
+| `文件` | `file://` URI of the file on disk — only with `--media` on `history` |
+| `小程序` | `weixin://dl/business/?appid=…&path=…` deep link |
+| `引用` | The URL of the quoted message (when it has one) |
+| `视频号` | *(none)* — use `object_id` instead |
+
+Local paths are never included unless you ask for them: `history --media` resolves
+`media_path` and `file://` URLs, while `search` and `export` keep only the web URLs.
+`sessions` / `unread` / `new-messages --urls` cover link-type messages only (a file
+has no URL to look up).
+
+```json
+{
+  "time": "2025-06-06 14:29",
+  "timestamp": 1749191381,
+  "sender": "李四",
+  "msg_type": "链接/文件",
+  "app_type": "链接",
+  "title": "深度分析 Jito 在 Solana 的作用",
+  "description": "…",
+  "md5": "…",
+  "text": "[链接] 深度分析 Jito 在 Solana 的作用",
+  "url": "https://mp.weixin.qq.com/s?__biz=…"
+}
+```
+
+Only fields that carry a value are emitted — a plain text message has just
+`time`, `timestamp`, `sender`, `msg_type` and `text`.
+
+> **Breaking change in v0.3.0** — `history.messages` and `search.results` used to be
+> arrays of strings; they are now arrays of objects. If you parse the JSON output,
+> read `record["text"]` instead of treating the item as a string.
+>
+> `sessions` / `unread` / `new-messages` keep their existing shape. Their
+> `summary` field is plain text, so resolving a URL there requires reading the
+> message database — opt in with `--urls` (slower: it decrypts the message DBs).
 
 ---
 

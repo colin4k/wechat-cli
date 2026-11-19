@@ -11,6 +11,7 @@ from ..core.messages import (
     resolve_chat_context,
     validate_pagination,
 )
+from ..core.message_records import render_block
 from ..output.formatter import output
 
 
@@ -53,7 +54,7 @@ def history(ctx, chat_name, limit, offset, start_time, end_time, fmt, msg_type, 
 
     names = get_contact_names(app.cache, app.decrypted_dir)
     type_filter = MSG_TYPE_FILTERS[msg_type] if msg_type else None
-    lines, failures = collect_chat_history(
+    records, failures = collect_chat_history(
         chat_ctx, names, app.display_name_fn,
         start_ts=start_ts, end_ts=end_ts, limit=limit, offset=offset,
         msg_type_filter=type_filter, resolve_media=media, db_dir=app.db_dir,
@@ -64,24 +65,24 @@ def history(ctx, chat_name, limit, offset, start_time, end_time, fmt, msg_type, 
             'chat': chat_ctx['display_name'],
             'username': chat_ctx['username'],
             'is_group': chat_ctx['is_group'],
-            'count': len(lines),
+            'count': len(records),
             'offset': offset,
             'limit': limit,
             'start_time': start_time or None,
             'end_time': end_time or None,
             'type': msg_type or None,
-            'messages': lines,
+            'messages': records,
             'failures': failures if failures else None,
         }, 'json')
     else:
-        header = f"{chat_ctx['display_name']} 的消息记录（返回 {len(lines)} 条，offset={offset}, limit={limit}）"
+        header = f"{chat_ctx['display_name']} 的消息记录（返回 {len(records)} 条，offset={offset}, limit={limit}）"
         if chat_ctx['is_group']:
             header += " [群聊]"
         if start_time or end_time:
             header += f"\n时间范围: {start_time or '最早'} ~ {end_time or '最新'}"
         if failures:
             header += "\n查询失败: " + "；".join(failures)
-        if lines:
-            output(header + ":\n\n" + "\n".join(lines), 'text')
+        if records:
+            output(header + ":\n\n" + "\n".join(render_block(r) for r in records), 'text')
         else:
             output(f"{chat_ctx['display_name']} 无消息记录", 'text')

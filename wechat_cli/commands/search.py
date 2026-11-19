@@ -15,6 +15,7 @@ from ..core.messages import (
     _candidate_page_size,
     _page_ranked_entries,
 )
+from ..core.message_records import render_block
 from ..output.formatter import output
 
 
@@ -109,7 +110,7 @@ def search(ctx, keyword, chat, start_time, end_time, limit, offset, fmt, msg_typ
             'start_time': start_time or None,
             'end_time': end_time or None,
             'type': msg_type or None,
-            'results': [item[1] for item in paged],
+            'results': paged,
             'failures': failures if failures else None,
         }, 'json')
     else:
@@ -121,4 +122,4 @@ def search(ctx, keyword, chat, start_time, end_time, limit, offset, fmt, msg_typ
             header += f"\n时间范围: {start_time or '最早'} ~ {end_time or '最新'}"
         if failures:
             header += "\n查询失败: " + "；".join(failures)
-        output(header + ":\n\n" + "\n\n".join(item[1] for item in paged), 'text')
+        output(header + ":\n\n" + "\n\n".join(render_block(r, include_chat=True) for r in paged), 'text')

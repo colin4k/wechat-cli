@@ -8,21 +8,24 @@ from datetime import datetime
 import click
 
 from ..core.contacts import get_contact_names
-from ..core.messages import decompress_content, format_msg_type
+from ..core.message_records import decompress_content, format_msg_type
+from ..core.session_urls import attach_urls
 from ..output.formatter import output
 
 
 @click.command("unread")
 @click.option("--limit", default=50, help="返回的会话数量")
 @click.option("--format", "fmt", default="json", type=click.Choice(["json", "text"]), help="输出格式")
+@click.option("--urls", is_flag=True, help="解析最后一条消息的链接（需解密消息库，较慢）")
 @click.pass_context
-def unread(ctx, limit, fmt):
+def unread(ctx, limit, fmt, urls):
     """查看未读会话
 
     \b
     示例:
       wechat-cli unread                # 查看所有未读会话
       wechat-cli unread --limit 10     # 最多显示 10 个
+      wechat-cli unread --urls         # 附带最后一条消息的链接
       wechat-cli unread --format text  # 纯文本输出
     """
     app = ctx.obj
@@ -44,6 +47,7 @@ def unread(ctx, limit, fmt):
         """, (limit,)).fetchall()
 
     results = []
+    targets = []
     for r in rows:
         username, unread, summary, ts, msg_type, sender, sender_name = r
         display = names.get(username, username)
@@ -69,6 +73,10 @@ def unread(ctx, limit, fmt):
             'timestamp': ts,
             'time': datetime.fromtimestamp(ts).strftime('%m-%d %H:%M'),
         })
+        targets.append({'username': username, 'timestamp': ts, 'msg_type': msg_type})
+
+    if urls:
+        results = attach_urls(results, targets, app.msg_db_keys, app.cache)
 
     if fmt == 'json':
         output(results, 'json')
@@ -86,5 +94,7 @@ def unread(ctx, limit, fmt):
             if r['sender']:
                 entry += f"{r['sender']}: "
             entry += r['last_message']
+            if r.get('url'):
+                entry += f"\n  {r['url']}"
             lines.append(entry)
         output(f"未读会话（{len(results)} 个）:\n\n" + "\n\n".join(lines), 'text')

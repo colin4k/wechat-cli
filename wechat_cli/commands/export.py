@@ -10,6 +10,7 @@ from ..core.messages import (
     resolve_chat_context,
     validate_pagination,
 )
+from ..core.message_records import render_block
 from ..output.formatter import output
 
 
@@ -48,12 +49,12 @@ def export(ctx, chat_name, fmt, output_path, start_time, end_time, limit):
         ctx.exit(1)
 
     names = get_contact_names(app.cache, app.decrypted_dir)
-    lines, failures = collect_chat_history(
+    records, failures = collect_chat_history(
         chat_ctx, names, app.display_name_fn,
         start_ts=start_ts, end_ts=end_ts, limit=limit, offset=0,
     )
 
-    if not lines:
+    if not records:
         click.echo(f"{chat_ctx['display_name']} 无消息记录", err=True)
         ctx.exit(0)
 
@@ -62,40 +63,44 @@ def export(ctx, chat_name, fmt, output_path, start_time, end_time, limit):
     time_range = f"{start_time or '最早'} ~ {end_time or '最新'}"
 
     if fmt == 'markdown':
-        content = _format_markdown(chat_ctx['display_name'], chat_type, time_range, now, lines)
+        content = _format_markdown(chat_ctx['display_name'], chat_type, time_range, now, records)
     else:
-        content = _format_txt(chat_ctx['display_name'], chat_type, time_range, now, lines)
+        content = _format_txt(chat_ctx['display_name'], chat_type, time_range, now, records)
 
     if output_path:
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(content)
             if not content.endswith('\n'):
                 f.write('\n')
-        click.echo(f"已导出到: {output_path}（{len(lines)} 条消息）", err=True)
+        click.echo(f"已导出到: {output_path}（{len(records)} 条消息）", err=True)
     else:
         output(content, 'text')
 
 
-def _format_markdown(display_name, chat_type, time_range, export_time, lines):
+def _format_markdown(display_name, chat_type, time_range, export_time, records):
     header = (
         f"# 聊天记录: {display_name}\n\n"
         f"**时间范围:** {time_range}\n\n"
         f"**导出时间:** {export_time}\n\n"
-        f"**消息数量:** {len(lines)}\n\n"
+        f"**消息数量:** {len(records)}\n\n"
         f"**类型:** {chat_type}\n\n---\n"
     )
-    body = "\n".join(f"- {line}" for line in lines)
-    return header + body
+    parts = []
+    for record in records:
+        block = render_block(record).split('\n')
+        parts.append(f"- {block[0]}")
+        parts.extend(f"  {line.strip()}" for line in block[1:])
+    return header + "\n".join(parts)
 
 
-def _format_txt(display_name, chat_type, time_range, export_time, lines):
+def _format_txt(display_name, chat_type, time_range, export_time, records):
     header = (
         f"聊天记录: {display_name}\n"
         f"类型: {chat_type}\n"
         f"时间范围: {time_range}\n"
         f"导出时间: {export_time}\n"
-        f"消息数量: {len(lines)}\n"
+        f"消息数量: {len(records)}\n"
         f"{'=' * 60}"
     )
-    body = "\n".join(lines)
+    body = "\n".join(render_block(record) for record in records)
     return header + "\n" + body

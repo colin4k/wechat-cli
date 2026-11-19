@@ -200,7 +200,10 @@ wechat-cli new-messages --format text
 wechat-cli sessions                        # 最近 20 个会话
 wechat-cli sessions --limit 10             # 最近 10 个
 wechat-cli sessions --format text          # 纯文本输出
+wechat-cli sessions --urls                 # 附带链接/文件的 url（较慢）
 ```
+
+**选项：** `--limit`、`--format`、`--urls`
 
 ### `history` — 聊天记录
 
@@ -212,7 +215,7 @@ wechat-cli history "张三" --type link      # 只看链接
 wechat-cli history "张三" --format text
 ```
 
-**选项：** `--limit`、`--offset`、`--start-time`、`--end-time`、`--type`、`--format`
+**选项：** `--limit`、`--offset`、`--start-time`、`--end-time`、`--type`、`--media`、`--format`
 
 ### `search` — 搜索消息
 
@@ -277,16 +280,65 @@ wechat-cli favorites --query "计算机网络"    # 搜索收藏
 ```bash
 wechat-cli unread                          # 所有未读会话
 wechat-cli unread --limit 10 --format text
+wechat-cli unread --urls                   # 附带链接/文件的 url（较慢）
 ```
+
+**选项：** `--limit`、`--format`、`--urls`
 
 ### `new-messages` — 增量新消息
 
 ```bash
 wechat-cli new-messages                    # 首次: 返回未读消息 + 保存状态
 wechat-cli new-messages                    # 后续: 仅返回上次以来的新消息
+wechat-cli new-messages --urls             # 附带链接/文件的 url（较慢）
 ```
 
+**选项：** `--format`、`--urls`
+
 状态保存在 `~/.wechat-cli/last_check.json`，删除此文件可重置。
+
+---
+
+## 🧩 消息记录结构
+
+`history` 和 `search` 返回的是**结构化对象**，不再是纯字符串数组。每条记录都带
+`msg_type`；链接/文件类消息额外带一个 `url` 字段，取能拿到的最佳地址：
+
+| `app_type` | `url` 的取值 |
+|------------|--------------|
+| `链接` | 文章真实的 HTTP(S) 地址 |
+| `文件` | 磁盘文件的 `file://` 地址 —— 仅在 `history --media` 时提供 |
+| `小程序` | `weixin://dl/business/?appid=…&path=…` 深链 |
+| `引用` | 被引用消息的 url（如果它有） |
+| `视频号` | *（无）* —— 用 `object_id` 代替 |
+
+本机路径不会默认出现：只有 `history --media` 会解析 `media_path` 和 `file://` 地址，
+`search` / `export` 只输出网页链接。`sessions` / `unread` / `new-messages --urls`
+只补链接类消息（文件没有可反查的 url）。
+
+```json
+{
+  "time": "2025-06-06 14:29",
+  "timestamp": 1749191381,
+  "sender": "李四",
+  "msg_type": "链接/文件",
+  "app_type": "链接",
+  "title": "深度分析 Jito 在 Solana 的作用",
+  "description": "…",
+  "md5": "…",
+  "text": "[链接] 深度分析 Jito 在 Solana 的作用",
+  "url": "https://mp.weixin.qq.com/s?__biz=…"
+}
+```
+
+只有有值的字段才会出现——一条纯文本消息只有 `time`、`timestamp`、`sender`、
+`msg_type` 和 `text`。
+
+> **v0.3.0 的破坏性变更** —— `history.messages` 和 `search.results` 原来是字符串
+> 数组，现在改成对象数组。要解析 JSON 输出的代码，请改读 `record["text"]`。
+>
+> `sessions` / `unread` / `new-messages` 的结构不变。它们存的是纯文本摘要，
+> 想拿到 url 必须回消息库反查——用 `--urls` 显式开启（较慢：需要解密消息库）。
 
 ---
 

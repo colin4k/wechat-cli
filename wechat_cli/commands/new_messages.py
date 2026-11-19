@@ -10,7 +10,8 @@ import click
 
 from ..core.config import STATE_DIR
 from ..core.contacts import get_contact_names
-from ..core.messages import decompress_content, format_msg_type
+from ..core.message_records import decompress_content, format_msg_type
+from ..core.session_urls import attach_urls
 from ..output.formatter import output
 
 STATE_FILE = os.path.join(STATE_DIR, "last_check.json")
@@ -34,14 +35,16 @@ def _save_last_state(state):
 
 @click.command("new-messages")
 @click.option("--format", "fmt", default="json", type=click.Choice(["json", "text"]), help="输出格式")
+@click.option("--urls", is_flag=True, help="解析最后一条消息的链接（需解密消息库，较慢）")
 @click.pass_context
-def new_messages(ctx, fmt):
+def new_messages(ctx, fmt, urls):
     """获取自上次调用以来的新消息
 
     \b
     示例:
       wechat-cli new-messages               # 首次: 返回未读消息并记录状态
       wechat-cli new-messages               # 再次: 仅返回新增消息
+      wechat-cli new-messages --urls        # 附带最后一条消息的链接
       wechat-cli new-messages --format text  # 纯文本输出
     \b
     状态文件: ~/.wechat-cli/last_check.json (删除此文件可重置)
@@ -78,6 +81,7 @@ def new_messages(ctx, fmt):
         _save_last_state({u: s['timestamp'] for u, s in curr_state.items()})
 
         unread_msgs = []
+        targets = []
         for username, s in curr_state.items():
             if s['unread'] and s['unread'] > 0:
                 display = names.get(username, username)
@@ -98,6 +102,14 @@ def new_messages(ctx, fmt):
                     'time': time_str,
                     'timestamp': s['timestamp'],
                 })
+                targets.append({
+                    'username': username,
+                    'timestamp': s['timestamp'],
+                    'msg_type': s['msg_type'],
+                })
+
+        if urls:
+            unread_msgs = attach_urls(unread_msgs, targets, app.msg_db_keys, app.cache)
 
         if fmt == 'json':
             output({'first_call': True, 'unread_count': len(unread_msgs), 'messages': unread_msgs}, 'json')
@@ -106,7 +118,10 @@ def new_messages(ctx, fmt):
                 lines = []
                 for m in unread_msgs:
                     tag = " [群]" if m['is_group'] else ""
-                    lines.append(f"[{m['time']}] {m['chat']}{tag} ({m['unread']}条未读): {m['last_message']}")
+                    entry = f"[{m['time']}] {m['chat']}{tag} ({m['unread']}条未读): {m['last_message']}"
+                    if m.get('url'):
+                        entry += f"\n  {m['url']}"
+                    lines.append(entry)
                 output(f"当前 {len(unread_msgs)} 个未读会话:\n\n" + "\n".join(lines), 'text')
             else:
                 output("当前无未读消息（已记录状态，下次调用将返回新消息）", 'text')
@@ -114,6 +129,7 @@ def new_messages(ctx, fmt):
 
     # 后续调用：对比差异
     new_msgs = []
+    targets = []
     for username, s in curr_state.items():
         prev_ts = last_state.get(username, 0)
         if s['timestamp'] > prev_ts:
@@ -139,6 +155,14 @@ def new_messages(ctx, fmt):
                 'time': datetime.fromtimestamp(s['timestamp']).strftime('%H:%M:%S'),
                 'timestamp': s['timestamp'],
             })
+            targets.append({
+                'username': username,
+                'timestamp': s['timestamp'],
+                'msg_type': s['msg_type'],
+            })
+
+    if urls:
+        new_msgs = attach_urls(new_msgs, targets, app.msg_db_keys, app.cache)
 
     _save_last_state({u: s['timestamp'] for u, s in curr_state.items()})
 
@@ -159,5 +183,7 @@ def new_messages(ctx, fmt):
                 if m['sender']:
                     entry += f" ({m['sender']})"
                 entry += f" - {m['last_message']}"
+                if m.get('url'):
+                    entry += f"\n  {m['url']}"
                 lines.append(entry)
             output(f"{len(new_msgs)} 条新消息:\n\n" + "\n".join(lines), 'text')
