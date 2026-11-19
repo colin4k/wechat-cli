@@ -3,6 +3,7 @@
 import os
 import tempfile
 import unittest
+from datetime import datetime
 
 from wechat_cli.core.message_records import (
     build_record,
@@ -43,7 +44,7 @@ CHANNEL_XML = (
 )
 
 
-TIME = '2025-06-06 14:29'
+TIME = datetime.fromtimestamp(1749191381).strftime('%Y-%m-%d %H:%M')
 
 
 def make_ctx(username='wxid_peer', display='张三', is_group=False):

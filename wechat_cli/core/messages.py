@@ -271,6 +271,12 @@ def collect_chat_history(ctx, names, display_name_fn, start_ts=None, end_ts=None
 
 # ---- 搜索查询 ----
 
+def _is_readable(row):
+    """消息体能否解压解析。压缩内容解不开时这条消息没有搜索价值。"""
+    _lid, _lt, _ts, _sid, content, ct = row
+    return decompress_content(content, ct) is not None
+
+
 def _collect_search_entries(conn, contexts, names, keyword, display_name_fn, start_ts=None, end_ts=None, candidate_limit=20, msg_type_filter=None):
     collected = []
     failures = []
@@ -287,6 +293,10 @@ def _collect_search_entries(conn, contexts, names, keyword, display_name_fn, sta
                     break
                 fetch_offset += len(rows)
                 for row in rows:
+                    if not _is_readable(row):
+                        # 解压失败的压缩消息不参与搜索：既不是有效命中，
+                        # 也不该占用 candidate_limit 名额
+                        continue
                     try:
                         record = _build_record(
                             row, ctx, names, id_to_username, display_name_fn,

@@ -17,8 +17,32 @@ _XML_UNSAFE_RE = re.compile(r'<!DOCTYPE|<!ENTITY', re.IGNORECASE)
 # 微信在消息体尾部补的 NUL 填充字节，会让整篇 XML 解析失败
 _NULL_BYTE_RE = re.compile('\x00')
 
-# XML 1.0 不允许的字符引用（&#11; / &#xB; 垂直制表符）
-_INVALID_CHAR_REF_RE = re.compile(r'&#(?:0*11|x0*[bB]);')
+# 字符引用（&#10; / &#xA;），用来剔除 XML 1.0 不允许的码点：
+# &#0;-&#8;、&#11;-&#31;、&#xFFFE;/&#xFFFF; 等会让 expat 抛
+# "reference to invalid character number"，整条消息连同里面的 url 一起被丢弃。
+_CHAR_REF_RE = re.compile(r'&#(?:[xX]([0-9a-fA-F]+)|([0-9]+));')
+
+
+def _is_valid_xml_char(code):
+    """XML 1.0 允许的字符码点。"""
+    return (
+        code in (0x9, 0xA, 0xD)
+        or 0x20 <= code <= 0xD7FF
+        or 0xE000 <= code <= 0xFFFD
+        or 0x10000 <= code <= 0x10FFFF
+    )
+
+
+def _strip_invalid_char_refs(text):
+    def replace(match):
+        hex_digits, dec_digits = match.group(1), match.group(2)
+        try:
+            code = int(hex_digits, 16) if hex_digits else int(dec_digits)
+        except (TypeError, ValueError):
+            return ''
+        return match.group(0) if _is_valid_xml_char(code) else ''
+
+    return _CHAR_REF_RE.sub(replace, text)
 
 
 def sanitize_xml(text: Optional[str]) -> str:
@@ -30,7 +54,7 @@ def sanitize_xml(text: Optional[str]) -> str:
     if not isinstance(text, str):
         return ''
     cleaned = _NULL_BYTE_RE.sub('', text)
-    cleaned = _INVALID_CHAR_REF_RE.sub('', cleaned)
+    cleaned = _strip_invalid_char_refs(cleaned)
     return cleaned.strip()
 
 

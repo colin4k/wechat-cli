@@ -77,9 +77,8 @@ def new_messages(ctx, fmt, urls):
     last_state = _load_last_state()
 
     if not last_state:
-        # 首次调用：保存状态，返回未读
-        _save_last_state({u: s['timestamp'] for u, s in curr_state.items()})
-
+        # 首次调用：返回未读。状态必须等 enrichment 之后再写，
+        # 否则中途失败会让这批未读永远不再出现。
         unread_msgs = []
         targets = []
         for username, s in curr_state.items():
@@ -110,6 +109,8 @@ def new_messages(ctx, fmt, urls):
 
         if urls:
             unread_msgs = attach_urls(unread_msgs, targets, app.msg_db_keys, app.cache)
+
+        _save_last_state({u: s['timestamp'] for u, s in curr_state.items()})
 
         if fmt == 'json':
             output({'first_call': True, 'unread_count': len(unread_msgs), 'messages': unread_msgs}, 'json')

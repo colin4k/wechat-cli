@@ -38,21 +38,64 @@ def file_uri(path):
 
 
 def _safe_child(base_dir, file_name):
-    """拼接 base_dir 下的子路径。"""
-    return os.path.join(base_dir, file_name)
+    """返回 base_dir 下名为 file_name 的路径；越界或非法时返回 None。
+
+    os.path.join 对绝对路径和 ".." 没有任何约束，这里显式校验：
+    文件名不得含路径分隔符，解析后的真实路径必须仍在 base_dir 内。
+    """
+    if not file_name or '\x00' in file_name:
+        return None
+    if os.path.isabs(file_name):
+        return None
+    if os.sep in file_name or (os.altsep and os.altsep in file_name):
+        return None
+
+    base_real = os.path.realpath(base_dir)
+    target = os.path.join(base_dir, file_name)
+    if os.path.commonpath([base_real, os.path.realpath(target)]) != base_real:
+        return None
+    return target
 
 
 def _date_prefix(create_time_ts):
-    """把时间戳转成 msg 目录用的 YYYY-MM。"""
-    return datetime.fromtimestamp(create_time_ts).strftime('%Y-%m')
+    """把时间戳转成 msg 目录用的 YYYY-MM；时间戳损坏时返回 None。"""
+    try:
+        return datetime.fromtimestamp(create_time_ts).strftime('%Y-%m')
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def _fuzzy_match(file_dir, file_name):
-    """在目录里找与 file_name 最接近的文件，返回完整路径或 None。"""
-    for name in os.listdir(file_dir):
-        if file_name in name or name in file_name:
-            return os.path.join(file_dir, name)
-    return None
+    """在目录里找与 file_name 最接近的文件，返回完整路径或 None。
+
+    优先级：精确 > 前缀 > 后缀 > 包含；同分时按名称排序，保证结果稳定。
+    """
+    try:
+        names = sorted(os.listdir(file_dir))
+    except OSError:
+        return None
+
+    min_len = max(1, int(len(file_name) * _FUZZY_MIN_RATIO))
+    best = None
+    best_score = 0
+    for name in names:
+        if len(name) < min_len and len(file_name) < min_len:
+            continue
+        if name == file_name:
+            score = 4
+        elif name.startswith(file_name):
+            score = 3
+        elif name.endswith(file_name):
+            score = 2
+        elif file_name in name:
+            score = 1
+        else:
+            continue
+        if score > best_score:
+            best, best_score = name, score
+    if best is None:
+        return None
+    return _safe_child(file_dir, best)
 
 
 def resolve_file_path(db_dir, file_name, create_time_ts, fuzzy=False):

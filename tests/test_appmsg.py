@@ -6,6 +6,7 @@ from wechat_cli.core.appmsg import (
     build_mini_program_url,
     is_placeholder_url,
     is_usable_url,
+    normalize_url,
     parse_appmsg,
 )
 from wechat_cli.core.xmlsafe import sanitize_xml
@@ -272,6 +273,57 @@ class UrlHelperTest(unittest.TestCase):
     def test_mini_program_url_without_identity_is_none(self):
         self.assertIsNone(build_mini_program_url(None, None, None))
 
+    def test_mini_program_url_separates_query(self):
+        """pagepath 里的 ?query 要单独编码，否则会被当成外层参数。"""
+        url = build_mini_program_url("wxabc", "pages/index?a=1&b=2")
+        self.assertIn("&path=pages/index", url)
+        self.assertIn("&query=a%3D1%26b%3D2", url)
+
+
+class UrlPolicyTest(unittest.TestCase):
+    def test_protocol_relative_url_is_normalized(self):
+        xml = wrap(
+            "<title>视频</title>\n<type>5</type>\n"
+            "<url><![CDATA[//live.bilibili.com/h5/4107053]]></url>"
+        )
+        msg = parse_appmsg(xml)
+        self.assertEqual(msg.url, "https://live.bilibili.com/h5/4107053")
+        self.assertEqual(normalize_url("//a.com/x"), "https://a.com/x")
+
+    def test_type_44_gets_mini_program_deep_link(self):
+        """44 和 33/36 一样是小程序，不能落到泛化分支丢掉深链。"""
+        xml = wrap(
+            "<title>小程序</title>\n<type>44</type>\n"
+            "<url>https://mp.weixin.qq.com/mp/waerrpage?appid=wxabc</url>\n"
+            "<weappinfo><appid>wxabc</appid>"
+            "<pagepath>pages/a.html</pagepath></weappinfo>"
+        )
+        msg = parse_appmsg(xml)
+        self.assertEqual(msg.url, "weixin://dl/business/?appid=wxabc&path=pages/a.html")
+
+    def test_placeholder_marker_does_not_match_inside_another_host(self):
+        self.assertFalse(
+            is_placeholder_url("https://evil.example/support.weixin.qq.com/update/")
+        )
+
+    def test_relative_path_is_dropped_from_link(self):
+        xml = wrap(
+            "<title>坏链接</title>\n<type>5</type>\n<url>index.html</url>"
+        )
+        self.assertIsNone(parse_appmsg(xml).url)
+
+
+class SanitizeExtendedTest(unittest.TestCase):
+    def test_removes_low_control_char_references(self):
+        for ref in ("&#1;", "&#x1;", "&#8;", "&#x1F;", "&#xFFFE;"):
+            self.assertNotIn(ref, sanitize_xml(f"<a>{ref}x</a>"))
+
+    def test_keeps_legal_whitespace_references(self):
+        for ref in ("&#9;", "&#10;", "&#13;", "&#xA;"):
+            self.assertIn(ref, sanitize_xml(f"<a>{ref}x</a>"))
+
+    def test_bytes_input_is_decoded(self):
+        self.assertEqual(sanitize_xml(b"<a/>\x00"), "<a/>")
 
 
 if __name__ == "__main__":
